@@ -1,0 +1,9 @@
+enable scw-relink-resolv-conf.service
+disable scw-generate-net-config.service
+disable scw-net-ipv6.service
+enable scw-fetch-ssh-keys.service
+disable scw-generate-ssh-keys.service
+disable scw-sync-kernel-modules.service
+enable scw-signal-booted.service
+enable scw-set-hostname.service
+enable scw-generate-root-passwd.service

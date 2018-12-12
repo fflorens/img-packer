@@ -1,0 +1,5 @@
+{
+	"extra_packages": "grub-efi-$(dpkg --print-architecture | sed s/armhf/arm/) dstat ethstatus fio haveged htop ioping iotop iperf linux-image-generic module-init-tools mosh ntp ntpdate python-software-properties python-yaml shunit2 socat sysstat",
+	"os_flavor": "xenial",
+	"os_version": "16.04"
+}

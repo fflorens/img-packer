@@ -1,0 +1,12 @@
+[Unit]
+Description=Generate network configuration on first boot
+ConditionFileNotEmpty=!/etc/resolv.conf
+Wants=networking.service
+After=networking.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/ln -sf /lib/systemd/resolv.conf /etc/resolv.conf
+
+[Install]
+WantedBy=multi-user.target

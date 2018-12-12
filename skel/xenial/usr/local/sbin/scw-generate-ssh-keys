@@ -1,0 +1,9 @@
+#!/bin/sh
+# description "generate SSH keys"
+# author "Scaleway <opensource@scaleway.com>"
+
+# Generate ssh host keys if not present
+if test -z "$(find /etc/ssh/ -iname 'ssh_host_*_key*')"; then
+    ssh-keygen -A
+fi
+scw-userdata ssh-host-fingerprints "$(find /etc/ssh/ -iname "ssh_host_*_key" -exec ssh-keygen -lf \{\} \;)"

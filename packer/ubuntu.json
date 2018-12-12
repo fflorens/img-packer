@@ -1,0 +1,167 @@
+{
+	"variables": {
+		"project_name": "scw-ubuntu",
+		"uuid": "{{ uuid }}",
+		"image_name_suffix": "{{ timestamp }}",
+		"rootfs_mount_opt": "rw,relatime",
+		"bootfs_mount_opt": "rw,relatime,errors=remount-ro,nofail",
+		"rescue_bootscript": "bf4cfb66-a2f8-4f77-9b1c-665cdfdf208e",
+		"apt_install_norecommends": "DEBIAN_FRONTEND=noninteractive apt-get install --option=Dpkg::Options::=--force-confold --option=Dpkg::Options::=--force-unsafe-io --assume-yes --quiet --no-install-recommends",
+		"apt_install": "DEBIAN_FRONTEND=noninteractive apt-get install --option=Dpkg::Options::=--force-confold --option=Dpkg::Options::=--force-unsafe-io --assume-yes --quiet",
+		"apt_upgrade": "DEBIAN_FRONTEND=noninteractive apt-get upgrade --option=Dpkg::Options::=--force-confold --option=Dpkg::Options::=--force-unsafe-io --assume-yes --quiet",
+		"target_dir": "/mnt",
+		"chroot_cmd": "chroot /mnt"
+	},
+	"builders":
+	[
+		{
+			"type": "scaleway",
+			"api_access_key": "{{ user `organization`}}",
+			"api_token": "{{ user `token` }}",
+			"commercial_type": "{{ user `commercial_type` }}",
+			"ssh_username": "root",
+			"ssh_agent_auth": false,
+			"region": "{{ user `region` }}",
+			"image": "{{ user `source_image` }}",
+			"image_name": "{{ user `project_name` }}-{{ user `os_flavor` }}-{{ user `source_image`}}-{{ user `region` }}-{{ user `image_name_suffix` }}",
+			"server_name": "{{ user `project_name` }}-{{ user `os_flavor` }}-{{ user `source_image`}}-builder-{{ user `uuid` }}",
+			"snapshot_name": "{{ user `project_name` }}-{{ user `os_flavor` }}-{{ user `source_image`}}-snap-{{ user `uuid` }}",
+			"bootscript": "{{ user `rescue_bootscript` }}"
+		}
+	],
+	"provisioners":
+	[
+		{
+			"type": "file",
+			"source": "genfstab",
+			"destination": "/root/"
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"### preparing host system",
+				"mount -o remount,size=2g /",
+				"/usr/bin/apt-get update"
+			]
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"{{ user `apt_install_norecommends` }} gdisk dosfstools zerofree squashfs-tools"
+			]
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"### preparing target",
+				"sgdisk -Z /dev/vda",
+				"parted -s -a optimal -- /dev/vda mklabel gpt",
+				"sgdisk -n 15:2048:206847 -t 0:ef00 -c 0:'efisystem' /dev/vda",
+				"sgdisk -n 0:0:0 -t 0:8300 -c 0:'root' /dev/vda",
+				"partprobe /dev/vda",
+				"lsblk",
+				"mkfs.vfat -F32 /dev/vda15",
+				"mkfs.ext4 -F /dev/vda1",
+				"mkdir -p {{ user `target_dir` }}",
+				"mount -o {{ user `rootfs_mount_opt` }} /dev/vda1 {{ user `target_dir` }}"
+			]
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"### debootstraping target from ubuntu-cloudimage",
+				"wget -qO- https://cloud-images.ubuntu.com/{{ user `os_flavor` }}/current/{{ user `os_flavor` }}-server-cloudimg-{{ user `arch` }}-root.tar.xz | tar xvJ -C {{ user `target_dir` }}"
+			]
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"### mounting filesystem for chroot",
+				"mkdir -p {{ user `target_dir` }}/boot/efi",
+				"mount -o {{ user `bootfs_mount_opt` }} /dev/vda15 {{ user `target_dir` }}/boot/efi",
+				"mount proc {{ user `target_dir` }}/proc -t proc -o nosuid,noexec,nodev",
+				"mount sys {{ user `target_dir` }}/sys -t sysfs -o nosuid,noexec,nodev,ro",
+				"mount udev {{ user `target_dir` }}/dev -t devtmpfs -o mode=0755,nosuid",
+				"mount devpts {{ user `target_dir` }}/dev/pts -t devpts -o mode=0620,gid=5,nosuid,noexec",
+				"mount shm {{ user `target_dir` }}/dev/shm -t tmpfs -o mode=1777,nosuid,nodev",
+				"mount run {{ user `target_dir` }}/run -t tmpfs -o nosuid,nodev,mode=0755",
+				"mount tmp {{ user `target_dir` }}/tmp -t tmpfs -o mode=1777,strictatime,nodev,nosuid",
+				"### hack for being able to join the network from the chroot",
+				"mkdir -p {{ user `target_dir` }}/etc/$(dirname $(readlink {{ user `target_dir` }}/etc/resolv.conf))",
+				"cat /etc/resolv.conf > {{ user `target_dir` }}/etc/resolv.conf"
+			]
+		},
+		{
+			"type": "file",
+			"source": "skel/{{ user `os_flavor` }}/",
+			"destination": "{{ user `target_dir` }}/"
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"### Updating target and installing basic packages",
+				"{{ user `chroot_cmd` }} /usr/bin/apt-get update",
+				"{{ user `chroot_cmd` }} bash -c 'export FLASH_KERNEL_SKIP=1; apt-get update && {{ user `apt_upgrade` }} && {{ user `apt_install` }} {{ user `extra_packages` }} && apt-get clean'",
+				"{{ user `chroot_cmd`}} bash -c '{{ user `apt_install` }} cloud-init'",
+				"{{ user `chroot_cmd` }} bash -c 'DEBIAN_FRONTEND=noninteractive /usr/sbin/locale-gen en_US.UTF-8'",
+				"{{ user `chroot_cmd` }} bash -c 'DEBIAN_FRONTEND=noninteractive /usr/sbin/locale-gen fr_FR.UTF-8'",
+				"{{ user `chroot_cmd` }} bash -c 'DEBIAN_FRONTEND=noninteractive dpkg-reconfigure locales'"
+			]
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"### making the image bootable",
+				"{{ user `chroot_cmd` }} /usr/local/sbin/scw-install-bootloader",
+				"### scw black magic",
+				"{{ user `chroot_cmd` }} /bin/systemctl set-default multi-user",
+				"{{ user `chroot_cmd` }} /bin/systemctl preset --preset-mode=full $(cat {{ user `target_dir` }}/etc/systemd/system-preset/*scw*.preset | cut -d' ' -f2 | tr '\n' ' ')",
+				"rm -f {{ user `target_dir` }}/var/lib/dbus/machine-id",
+				"/root/genfstab {{ user `target_dir` }}"
+			]
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"echo  Cleaning up packages",
+				"{{ user `chroot_cmd` }} /usr/bin/apt-get clean",
+				"{{ user `chroot_cmd` }} /usr/bin/apt-get autoclean",
+				"find {{ user `target_dir` }}/var/lib/apt/lists/ -name '*_Packages' -o -name '*_Releases' -o -name '*_Sources' -delete",
+				"rm -f {{ user `target_dir` }}/var/cache/apt/pkgcache.bin {{ user `target_dir` }}/var/cache/apt/srcpkgcache.bin",
+				"find {{ user `target_dir` }}/var/log/ -type f -delete"
+			]
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"umount -lf {{ user `target_dir` }}/tmp",
+				"umount -lf {{ user `target_dir` }}/run",
+				"umount -lf {{ user `target_dir` }}/dev/shm",
+				"umount -lf {{ user `target_dir` }}/dev/pts",
+				"umount -lf {{ user `target_dir` }}/dev",
+				"umount -lf {{ user `target_dir` }}/sys",
+				"umount -lf {{ user `target_dir` }}/proc"
+			]
+		},
+		{
+			"type": "shell",
+			"inline":
+			[
+				"### umounting filesystem then syncing and freeing unused blocks",
+				"umount {{ user `target_dir` }}/boot/efi",
+				"umount {{ user `target_dir` }}",
+				"sync",
+				"zerofree -v /dev/vda1"
+			]
+		}
+	]
+}

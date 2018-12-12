@@ -1,0 +1,5 @@
+{
+	"extra_packages": "grub-efi-$(dpkg --print-architecture | sed s/armhf/arm/) ifupdown linux-image-generic",
+	"os_flavor": "bionic",
+	"os_version": "18.04"
+}
